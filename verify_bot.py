@@ -8,11 +8,13 @@ import asyncio
 # ==================== НАСТРОЙКИ ====================
 TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN")
 
-# ID твоего сервера (ОБЯЗАТЕЛЬНО!)
+# ID твоего сервера
 GUILD_ID = int(os.environ.get("GUILD_ID", "0"))
 
+# ID каналов и ролей
 VERIFY_CHANNEL_ID = int(os.environ.get("VERIFY_CHANNEL_ID", "0"))
 VERIFY_ROLE_ID    = int(os.environ.get("VERIFY_ROLE_ID", "0"))
+UNVERIFY_ROLE_ID  = int(os.environ.get("UNVERIFY_ROLE_ID", "0"))  # Роль, которую снимаем
 LOG_CHANNEL_ID    = int(os.environ.get("LOG_CHANNEL_ID", "0"))
 
 VERIFY_EMOJI = "✅"
@@ -96,10 +98,19 @@ async def setup_verify_message(guild):
 
 async def grant_role(member, role):
     try:
+        # 1. Выдаем роль Верифицированный
         await member.add_roles(role, reason="Верификация ✅")
+        
+        # 2. Снимаем роль Unverify (если она указана и если она есть у человека)
+        if UNVERIFY_ROLE_ID != 0:
+            unverify_role = member.guild.get_role(UNVERIFY_ROLE_ID)
+            if unverify_role and unverify_role in member.roles:
+                await member.remove_roles(unverify_role, reason="Верификация пройдена")
+                print(f"[{member.guild.name}] Роль {unverify_role.name} снята с {member}")
+        
         print(f"[{member.guild.name}] Роль выдана: {member}")
     except discord.Forbidden:
-        print(f"ОШИБКА: Нет прав выдать роль {role.name} (подними роль бота выше!)")
+        print(f"ОШИБКА: Нет прав выдать роль {role.name} или снять Unverify (подними роль бота выше!)")
 
 
 async def remove_role(member, role):
@@ -123,6 +134,19 @@ async def send_log(guild, member, action):
     )
     embed.set_author(name=str(member), icon_url=member.display_avatar.url)
     embed.add_field(name="Пользователь", value=f"{member.mention} (`{member.id}`)", inline=False)
+    
+    # --- ДОБАВЛЕНА ИНФОРМАЦИЯ О ДАТЕ СОЗДАНИЯ АККАУНТА ---
+    # Discord отдает время в формате UTC, переводим для удобства (например, в МСК или просто форматируем)
+    created_ts = int(member.created_at.timestamp())
+    embed.add_field(
+        name="Аккаунт создан", 
+        value=f"<t:{created_ts}:f> (<t:{created_ts}:R>)", 
+        inline=False
+    )
+    # -----------------------------------------------------
+
+    if passed:
+        embed.add_field(name="Действие", value="Выдана роль Верифицированный, снята роль Unverify", inline=False)
     try:
         await channel.send(embed=embed)
     except discord.Forbidden:
