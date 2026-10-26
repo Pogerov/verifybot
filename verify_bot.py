@@ -14,7 +14,7 @@ GUILD_ID = int(os.environ.get("GUILD_ID", "0"))
 # ID каналов и ролей
 VERIFY_CHANNEL_ID = int(os.environ.get("VERIFY_CHANNEL_ID", "0"))
 VERIFY_ROLE_ID    = int(os.environ.get("VERIFY_ROLE_ID", "0"))
-UNVERIFY_ROLE_ID  = int(os.environ.get("UNVERIFY_ROLE_ID", "0"))  # Роль, которую снимаем
+UNVERIFY_ROLE_ID  = int(os.environ.get("UNVERIFY_ROLE_ID", "0"))  # Роль, которую снимаем и выдаем новичкам
 LOG_CHANNEL_ID    = int(os.environ.get("LOG_CHANNEL_ID", "0"))
 
 VERIFY_EMOJI = "✅"
@@ -135,15 +135,12 @@ async def send_log(guild, member, action):
     embed.set_author(name=str(member), icon_url=member.display_avatar.url)
     embed.add_field(name="Пользователь", value=f"{member.mention} (`{member.id}`)", inline=False)
     
-    # --- ДОБАВЛЕНА ИНФОРМАЦИЯ О ДАТЕ СОЗДАНИЯ АККАУНТА ---
-    # Discord отдает время в формате UTC, переводим для удобства (например, в МСК или просто форматируем)
     created_ts = int(member.created_at.timestamp())
     embed.add_field(
         name="Аккаунт создан", 
         value=f"<t:{created_ts}:f> (<t:{created_ts}:R>)", 
         inline=False
     )
-    # -----------------------------------------------------
 
     if passed:
         embed.add_field(name="Действие", value="Выдана роль Верифицированный, снята роль Unverify", inline=False)
@@ -170,11 +167,29 @@ async def on_ready():
     print("=" * 40)
 
 
+# --- НОВОЕ СОБЫТИЕ: ВЫДАЧА РОЛИ ПРИ ВХОДЕ ---
+@bot.event
+async def on_member_join(member):
+    # Проверяем, что человек зашел именно на наш сервер
+    if member.guild.id != GUILD_ID:
+        return
+
+    # Если роль Unverify указана в настройках
+    if UNVERIFY_ROLE_ID != 0:
+        unverify_role = member.guild.get_role(UNVERIFY_ROLE_ID)
+        if unverify_role:
+            try:
+                await member.add_roles(unverify_role, reason="Автоматическая выдача роли при входе")
+                print(f"[{member.guild.name}] Выдана роль {unverify_role.name} новому участнику: {member}")
+            except discord.Forbidden:
+                print(f"[{member.guild.name}] ОШИБКА: Нет прав выдать роль {unverify_role.name} (подними роль бота выше!)")
+
+
 @bot.event
 async def on_raw_reaction_add(payload):
     global verify_message_id
     if payload.guild_id != GUILD_ID:
-        return  # Игнорируем другие сервера
+        return
     if verify_message_id is not None and payload.message_id != verify_message_id:
         return
     if str(payload.emoji) != VERIFY_EMOJI:
