@@ -8,9 +8,12 @@ import asyncio
 # ==================== НАСТРОЙКИ ====================
 TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN")
 
-VERIFY_CHANNEL_ID = int(os.environ.get("1564145648440316075", "0"))
-VERIFY_ROLE_ID    = int(os.environ.get("1563198788913602650", "0"))
-LOG_CHANNEL_ID    = int(os.environ.get("1563209196541976576", "0"))
+# ID твоего сервера (ОБЯЗАТЕЛЬНО!)
+GUILD_ID = int(os.environ.get("GUILD_ID", "0"))
+
+VERIFY_CHANNEL_ID = int(os.environ.get("VERIFY_CHANNEL_ID", "0"))
+VERIFY_ROLE_ID    = int(os.environ.get("VERIFY_ROLE_ID", "0"))
+LOG_CHANNEL_ID    = int(os.environ.get("LOG_CHANNEL_ID", "0"))
 
 VERIFY_EMOJI = "✅"
 VERIFY_TEXT = (
@@ -28,7 +31,6 @@ intents.reactions = True
 intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 verify_message_id: int | None = None
 
 
@@ -44,66 +46,67 @@ async def setup_channel_permissions(guild):
     channel = guild.get_channel(VERIFY_CHANNEL_ID)
     role = guild.get_role(VERIFY_ROLE_ID)
     if channel is None or role is None:
-        print(f"[{guild.name}] Канал или роль не найдены — пропускаю настройку прав")
+        print(f"[{guild.name}] ОШИБКА: Канал или роль не найдены! Проверь ID.")
         return
     try:
+        # @everyone видит канал, но не может писать
         await channel.set_permissions(
             guild.default_role, view_channel=True, send_messages=False, add_reactions=False
         )
+        # Верифицированные не видят канал
         await channel.set_permissions(role, view_channel=False)
-        print(f"[{guild.name}] Права канала верификации настроены")
+        print(f"[{guild.name}] Права канала настроены")
     except discord.Forbidden:
-        print(f"[{guild.name}] Нет прав Manage Channels — пропускаю настройку прав")
+        print(f"[{guild.name}] Нет прав Manage Channels")
 
 
-async def setup_verify_message():
+async def setup_verify_message(guild):
     global verify_message_id
-    for guild in bot.guilds:
-        await setup_channel_permissions(guild)
-        channel = guild.get_channel(VERIFY_CHANNEL_ID)
-        if channel is None:
-            print(f"[{guild.name}] Канал верификации не найден")
-            continue
-        try:
-            async for msg in channel.history(limit=50):
-                if msg.author.id == bot.user.id and msg.embeds:
-                    for r in msg.reactions:
-                        if str(r.emoji) == VERIFY_EMOJI:
-                            verify_message_id = msg.id
-                            print(f"[{guild.name}] Найдено сообщение: {msg.id}")
-                            try:
-                                await msg.add_reaction(VERIFY_EMOJI)
-                            except discord.HTTPException:
-                                pass
-                            break
-                    if verify_message_id:
-                        break
-        except discord.Forbidden:
-            pass
-        if verify_message_id is None:
-            try:
-                msg = await send_verify_message(channel)
-                verify_message_id = msg.id
-                print(f"[{guild.name}] Создано сообщение: {msg.id}")
-            except discord.Forbidden:
-                print(f"[{guild.name}] Нет прав писать в канал")
+    await setup_channel_permissions(guild)
+    
+    channel = guild.get_channel(VERIFY_CHANNEL_ID)
+    if channel is None:
+        print(f"[{guild.name}] ОШИБКА: Канал верификации не найден (проверь VERIFY_CHANNEL_ID)")
+        return
+
+    # Ищем старое сообщение
+    try:
+        async for msg in channel.history(limit=50):
+            if msg.author.id == bot.user.id and msg.embeds:
+                for r in msg.reactions:
+                    if str(r.emoji) == VERIFY_EMOJI:
+                        verify_message_id = msg.id
+                        print(f"[{guild.name}] Найдено старое сообщение: {msg.id}")
+                        try:
+                            await msg.add_reaction(VERIFY_EMOJI)
+                        except discord.HTTPException:
+                            pass
+                        return
+    except discord.Forbidden:
+        print(f"[{guild.name}] Нет прав читать историю канала")
+
+    # Если не нашли — создаём новое
+    try:
+        msg = await send_verify_message(channel)
+        verify_message_id = msg.id
+        print(f"[{guild.name}] СОЗДАНО НОВОЕ СООБЩЕНИЕ: {msg.id}")
+    except discord.Forbidden:
+        print(f"[{guild.name}] ОШИБКА: Нет прав писать в канал верификации!")
 
 
 async def grant_role(member, role):
     try:
         await member.add_roles(role, reason="Верификация ✅")
-        print(f"[{member.guild.name}] Роль {role.name} выдана: {member}")
+        print(f"[{member.guild.name}] Роль выдана: {member}")
     except discord.Forbidden:
-        print(f"Нет прав выдать роль {role.name}")
-    except discord.HTTPException as e:
-        print(f"Ошибка роли: {e}")
+        print(f"ОШИБКА: Нет прав выдать роль {role.name} (подними роль бота выше!)")
 
 
 async def remove_role(member, role):
     try:
         await member.remove_roles(role, reason="Снята реакция")
-    except (discord.Forbidden, discord.HTTPException) as e:
-        print(f"Ошибка снятия роли: {e}")
+    except (discord.Forbidden, discord.HTTPException):
+        pass
 
 
 async def send_log(guild, member, action):
@@ -128,29 +131,44 @@ async def send_log(guild, member, action):
 
 @bot.event
 async def on_ready():
+    print("=" * 40)
     print(f"Бот запущен как {bot.user}")
     print(f"Серверов: {len(bot.guilds)}")
-    await setup_verify_message()
+    
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        print(f"ОШИБКА: Бот не нашел сервер с ID {GUILD_ID}!")
+        print("Проверь GUILD_ID в Render Environment Variables")
+        return
+        
+    print(f"Работаю на сервере: {guild.name} (ID: {guild.id})")
+    await setup_verify_message(guild)
+    print("=" * 40)
 
 
 @bot.event
 async def on_raw_reaction_add(payload):
     global verify_message_id
+    if payload.guild_id != GUILD_ID:
+        return  # Игнорируем другие сервера
     if verify_message_id is not None and payload.message_id != verify_message_id:
         return
     if str(payload.emoji) != VERIFY_EMOJI:
         return
     if payload.user_id == bot.user.id:
         return
-    guild = bot.get_guild(payload.guild_id)
+    
+    guild = bot.get_guild(GUILD_ID)
     if guild is None:
         return
     member = guild.get_member(payload.user_id)
     if member is None or member.bot:
         return
+        
     role = guild.get_role(VERIFY_ROLE_ID)
     if role is None:
         return
+        
     if role in member.roles:
         try:
             channel = guild.get_channel(payload.channel_id)
@@ -160,6 +178,7 @@ async def on_raw_reaction_add(payload):
         except (discord.NotFound, discord.Forbidden):
             pass
         return
+        
     await grant_role(member, role)
     await send_log(guild, member, "grant")
 
@@ -168,16 +187,20 @@ async def on_raw_reaction_add(payload):
 async def on_raw_reaction_remove(payload):
     if not REMOVE_ROLE_ON_UNREACT:
         return
+    if payload.guild_id != GUILD_ID:
+        return
     if verify_message_id is not None and payload.message_id != verify_message_id:
         return
     if str(payload.emoji) != VERIFY_EMOJI:
         return
-    guild = bot.get_guild(payload.guild_id)
+        
+    guild = bot.get_guild(GUILD_ID)
     if guild is None:
         return
     member = guild.get_member(payload.user_id)
     if member is None or member.bot:
         return
+        
     role = guild.get_role(VERIFY_ROLE_ID)
     if role and role in member.roles:
         await remove_role(member, role)
@@ -188,6 +211,8 @@ async def on_raw_reaction_remove(payload):
 @commands.has_permissions(administrator=True)
 async def repost(ctx):
     global verify_message_id
+    if ctx.guild.id != GUILD_ID:
+        return
     channel = ctx.guild.get_channel(VERIFY_CHANNEL_ID)
     if channel is None:
         return
