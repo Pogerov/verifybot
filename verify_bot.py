@@ -8,9 +8,9 @@ import asyncio
 # ==================== НАСТРОЙКИ ====================
 TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN")
 
-VERIFY_CHANNEL_ID = int(os.environ.get("VERIFY_CHANNEL_ID", "0"))
-VERIFY_ROLE_ID    = int(os.environ.get("VERIFY_ROLE_ID", "0"))
-LOG_CHANNEL_ID    = int(os.environ.get("LOG_CHANNEL_ID", "0"))
+VERIFY_CHANNEL_ID = int(os.environ.get("1564145648440316075", "0"))
+VERIFY_ROLE_ID    = int(os.environ.get("1563198788913602650", "0"))
+LOG_CHANNEL_ID    = int(os.environ.get("1563209196541976576", "0"))
 
 VERIFY_EMOJI = "✅"
 VERIFY_TEXT = (
